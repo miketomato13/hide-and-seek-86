@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Hide + Seek '86</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c0517; --panel:#170b28; --grid:#8c1eff;
+    --cyan:#00e5ff; --pink:#ff2975; --gold:#ffd319; --mint:#00ffa3;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg); color:#e8e0ff; min-height:100vh;
+    display:flex; flex-direction:column; align-items:center;
+    font-family:'Press Start 2P', monospace; padding:16px;
+  }
+  header{text-align:center; margin:18px 0 6px;}
+  h1{
+    font-size:clamp(18px, 5vw, 34px); letter-spacing:2px; line-height:1.4;
+    color:var(--pink); text-shadow:0 0 12px var(--pink), 0 0 40px rgba(255,41,117,.5);
+  }
+  h1 span{color:var(--cyan); text-shadow:0 0 12px var(--cyan), 0 0 40px rgba(0,229,255,.5);}
+  .tag{font-size:10px; color:#9a86c8; margin-top:10px; letter-spacing:1px;}
+  .hud{
+    width:min(960px, 100%); display:flex; align-items:center; gap:12px;
+    margin:18px 0 10px; font-size:11px; flex-wrap:wrap;
+  }
+  #level{color:var(--gold);}
+  #statusMsg{color:#9a86c8; font-size:9px; flex:1;}
+  #timer{color:var(--cyan); font-size:14px;}
+  button{
+    font-family:inherit; font-size:10px; color:var(--cyan);
+    background:transparent; border:2px solid var(--cyan); border-radius:6px;
+    padding:10px 14px; cursor:pointer; text-shadow:0 0 8px var(--cyan);
+    box-shadow:0 0 10px rgba(0,229,255,.35), inset 0 0 8px rgba(0,229,255,.15);
+  }
+  button:active{transform:scale(.96);}
+  canvas{
+    width:min(960px, 100%); border:2px solid var(--grid); border-radius:12px;
+    background:#12081f; touch-action:none; display:block;
+    box-shadow:0 0 24px rgba(140,30,255,.45);
+    image-rendering:auto;
+  }
+  .dpad{display:flex; justify-content:center; gap:10px; margin-top:14px;}
+  .dpad button{width:64px; height:52px; font-size:16px; line-height:1;}
+  .abilities{
+    display:flex; justify-content:center; gap:10px; margin-top:14px; flex-wrap:wrap;
+  }
+  .slot{
+    position:relative; width:72px; height:60px; overflow:hidden;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+    padding:0; border-width:2px;
+  }
+  .slot .k{font-size:11px;}
+  .slot .n{font-size:7px; letter-spacing:1px;}
+  .slot .cdov{
+    position:absolute; left:0; bottom:0; width:100%; height:0%;
+    background:rgba(255,255,255,0.12); pointer-events:none; transition:height .1s linear;
+  }
+  .slot .lock{ letter-spacing:1px;
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:12px; color:#5d4a8a; pointer-events:none;
+  }
+  .slot.locked{border-color:#3a2a5c !important; color:transparent;}
+  .slot.locked .lock{background:rgba(12,5,23,0.75); color:#5d4a8a;}
+  .legend{
+    width:min(960px,100%); display:flex; gap:18px; margin-top:14px;
+    font-size:8px; line-height:1.8; flex-wrap:wrap; color:#9a86c8;
+  }
+  .legend .c{color:var(--cyan);} .legend .p{color:var(--pink);}
+  .legend .g{color:var(--gold);} .legend .m{color:var(--mint);}
+  footer{margin:26px 0 10px; font-size:8px; color:#5d4a8a; text-align:center; line-height:2;}
+  @media (prefers-reduced-motion: reduce){ *{animation:none !important;} }
+</style>
+</head>
+<body>
+<header>
+  <h1>HIDE <span>+</span> SEEK <span>'86</span></h1>
+  <p class="tag">EVADE THE SEEKER-BOTS &middot; HEDGES ARE NOT SAFE</p>
+</header>
+
+<div class="hud">
+  <span id="level">LEVEL 1</span>
+  <span id="statusMsg">SURVIVE 60 SEC</span>
+  <span id="timer">60</span>
+  <button id="restart">INSERT COIN</button>
+</div>
+
+<canvas id="game" width="960" height="600"></canvas>
+
+<div class="abilities" id="abilityBar"></div>
+
+<div class="dpad">
+  <button data-d="left" aria-label="Move left">&larr;</button>
+  <button data-d="up" aria-label="Move up">&uarr;</button>
+  <button data-d="down" aria-label="Move down">&darr;</button>
+  <button data-d="right" aria-label="Move right">&rarr;</button>
+</div>
+
+<div class="legend">
+  <span class="c">CYAN RING = HIDER (YOU)</span>
+  <span class="p">PINK RING = SEEKER-BOT</span>
+  <span class="g">YELLOW = CHECKING HEDGES</span>
+  <span class="m">MINT WALLS BLOCK SIGHT</span>
+</div>
+
+<footer>WASD / ARROWS TO MOVE &middot; SPACE / Q / E / R / F FOR ABILITIES &middot; UNLOCK A NEW MOVE EVERY 2 LEVELS<br>SURVIVE 60 SEC PER LEVEL &middot; EVERY LEVEL CLEARED, ANOTHER SEEKER JOINS</footer>
+
+<script src="faces.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
