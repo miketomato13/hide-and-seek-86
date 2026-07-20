@@ -83,8 +83,8 @@ export default async function handler(req, res) {
       const rows = [];
       if (Array.isArray(flat)) {
         for (let i = 0; i + 1 < flat.length; i += 2) {
-          const [initials, level] = String(flat[i]).split('|');
-          rows.push({ initials, level: parseInt(level, 10) || 1, score: Math.round(Number(flat[i + 1])) });
+          const [initials, level, , , diff] = String(flat[i]).split('|');
+          rows.push({ initials, level: parseInt(level, 10) || 1, score: Math.round(Number(flat[i + 1])), difficulty: diff || 'hard' });
         }
       }
       return res.status(200).json({ scores: rows });
@@ -99,7 +99,8 @@ export default async function handler(req, res) {
           !Number.isFinite(level) || level < 1 || level > 999) {
         return res.status(400).json({ error: 'invalid score payload' });
       }
-      const member = `${initials}|${level}|${Date.now()}|${Math.random().toString(36).slice(2, 7)}`;
+      const diff = ['easy','hard'].includes(body.difficulty) ? body.difficulty : 'hard';
+      const member = `${initials}|${level}|${Date.now()}|${Math.random().toString(36).slice(2, 7)}|${diff}`;
       await kv(['ZADD', SCORE_KEY, String(score), member]);
       await kv(['ZREMRANGEBYRANK', SCORE_KEY, '0', '-101']);
       return res.status(200).json({ ok: true });

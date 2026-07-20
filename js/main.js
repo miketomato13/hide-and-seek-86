@@ -22,16 +22,16 @@ function startLevel() {
   if (newArena) { currentEpoch = epoch; generateMap(epoch); }
   player = {x:PLAYER_SPAWN.x, y:PLAYER_SPAWN.y, r:15, speed:180, fx:1, fy:0};
   seekers = [];
-  const n = Math.min(1 + level, spawns.length);
+  const n = Math.max(1, Math.min(Math.floor((1 + level) * DIFF().botMul), spawns.length));
   for (let i = 0; i < n; i++) {
     const sp = spawns[i];
     seekers.push({
       x:sp.x, y:sp.y, r:16,
-      speed: 125 + level*4, chaseSpeed: 195 + level*4,
+      speed: (125 + level*4) * DIFF().speedMul, chaseSpeed: (195 + level*4) * DIFF().speedMul,
       route: sp.route, wp: 0, state: 'patrol',
       lastSeen: null, searchT: 0, dir: 0,
       path: null, pathGoal: null, repathT: 0,
-      investT: (2 + Math.random()*3) * Math.min(1, (1+level)/4), targetPoi: -1, lingerT: 0,
+      investT: (2 + Math.random()*3) * Math.min(1, (1+level)/4) * DIFF().sweepMul, targetPoi: -1, lingerT: 0,
       frozenT: 0, stunT: 0, quarry: 'player',
       px: sp.x, py: sp.y, stuck: 0
     });
@@ -43,7 +43,7 @@ function startLevel() {
   timeLeft = LEVEL_TIME; over = false; win = false; clearT = 0;
   last = performance.now();
   $('level').textContent = 'LEVEL ' + level;
-  $('statusMsg').textContent = n + ' SEEKER-BOTS \u00b7 SURVIVE 30 SEC';
+  $('statusMsg').textContent = DIFF().label + ' \u00b7 ' + n + ' SEEKER-BOTS \u00b7 SURVIVE 30 SEC';
   const newAb = ABILITIES.find(a => a.unlock === level);
   const parts = [];
   if (newArena && level > 1) parts.push('NEW ARENA');
@@ -77,8 +77,8 @@ function sightBlocked(x1, y1, x2, y2) {
 function canSeePoint(s, px, py) {
   const pB = whichBush(px, py), sB = whichBush(s.x, s.y);
   const dx = px - s.x, dy = py - s.y, d = Math.hypot(dx, dy);
-  if (pB >= 0) return sB === pB && d < 90;
-  if (d > 220) return false;
+  if (pB >= 0) return sB === pB && d < 90 * DIFF().bushBubbleMul;
+  if (d > 220 * DIFF().visionMul) return false;
   const ang = Math.atan2(dy, dx);
   let diff = Math.abs(ang - s.dir);
   if (diff > Math.PI) diff = 2*Math.PI - diff;
@@ -163,7 +163,7 @@ async function loadScores() {
     (data.scores || []).forEach((s, i) => {
       const li = document.createElement('li');
       li.textContent = String(i + 1).padStart(2, ' ') + '. ' + (s.initials || '???').padEnd(3, ' ') +
-        '  ' + String(s.score).padStart(5, ' ') + '  LVL ' + s.level;
+        '  ' + String(s.score).padStart(5, ' ') + '  LVL ' + s.level + (s.difficulty === 'easy' ? '  EZ' : '');
       list.appendChild(li);
     });
     status.textContent = (data.scores || []).length ? '' : 'NO SCORES YET \u00b7 BE FIRST';
@@ -181,7 +181,7 @@ async function submitScore() {
     await fetch('/api/scores', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({initials, score: Math.floor(runScore), level})
+      body: JSON.stringify({initials, score: Math.floor(runScore), level, difficulty})
     });
   } catch (e) {}
   loadScores();
@@ -217,6 +217,27 @@ if (goSkip) goSkip.addEventListener('click', () => { scoreSubmitted = true; hide
 const goInp = document.getElementById('goInitials');
 if (goInp) goInp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') submitScore(); });
 if (goInp) goInp.addEventListener('keyup', e => e.stopPropagation());
+// ---------- Difficulty buttons ----------
+function styleDiffButtons() {
+  for (const [key, el] of [['easy', $('diffEasy')], ['hard', $('diffHard')]]) {
+    if (!el) continue;
+    const on = difficulty === key;
+    el.style.color = on ? 'var(--gold)' : '#5d4a8a';
+    el.style.borderColor = on ? 'var(--gold)' : '#5d4a8a';
+    el.style.boxShadow = on ? '0 0 10px rgba(255,211,25,.4)' : 'none';
+    el.style.textShadow = on ? '0 0 8px var(--gold)' : 'none';
+  }
+}
+function setDifficulty(d) {
+  if (difficulty === d) return;
+  difficulty = d;
+  styleDiffButtons();
+  if (started) fullReset();
+}
+const deB = $('diffEasy'), dhB = $('diffHard');
+if (deB) deB.addEventListener('click', () => setDifficulty('easy'));
+if (dhB) dhB.addEventListener('click', () => setDifficulty('hard'));
+styleDiffButtons();
 loadScores();
 renderHotbar();
 requestAnimationFrame(loop);

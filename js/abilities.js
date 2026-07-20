@@ -180,7 +180,7 @@ function update(dt) {
         if (!wallBlocked(s.x, s.y, tx, ty)) stepToward(s, tx, ty, s.chaseSpeed, dt);
         else navigate(s, tx, ty, s.chaseSpeed, dt);
       } else {
-        s.state = 'search'; s.searchT = 4; s.path = null; s.quarry = 'player';
+        s.state = 'search'; s.searchT = 4 * DIFF().searchMul; s.path = null; s.quarry = 'player';
         const bi = whichBush(s.lastSeen.x, s.lastSeen.y);
         s.target = bi >= 0 ? bushCenter(bi) : {x:s.lastSeen.x, y:s.lastSeen.y};
       }
@@ -193,7 +193,7 @@ function update(dt) {
       if (arrived) {
         s.lingerT -= dt; s.dir += dt*2.5;
         poiChecked[s.targetPoi] = t;
-        if (s.lingerT <= 0) { s.state = 'patrol'; s.path = null; s.investT = (4 + Math.random()*4) * Math.min(1, seekers.length/4); }
+        if (s.lingerT <= 0) { s.state = 'patrol'; s.path = null; s.investT = (4 + Math.random()*4) * Math.min(1, seekers.length/4) * DIFF().sweepMul; }
       }
     } else {
       s.investT -= dt;

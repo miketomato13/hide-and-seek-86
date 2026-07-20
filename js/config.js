@@ -28,3 +28,11 @@ const POWERUPS = [
 const CRATE_LIFE = 10, CRATE_MAX = 2, CRATE_PICKUP_R = 22;
 const FREEZE_TIME = 2, CLOAK_TIME = 3, CLOCK_CUT = 8;
 
+// ---------- Difficulty ----------
+const DIFFICULTIES = {
+  easy: {label:'EASY', speedMul:0.68, visionMul:0.65, bushBubbleMul:0.72, sweepMul:2.2, searchMul:0.5, botMul:0.75},
+  hard: {label:'HARD', speedMul:1,    visionMul:1,    bushBubbleMul:1,    sweepMul:1,   searchMul:1,   botMul:1},
+};
+let difficulty = 'hard';
+const DIFF = () => DIFFICULTIES[difficulty];
+
