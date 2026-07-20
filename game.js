@@ -191,10 +191,10 @@ function startLevel() {
   }
   bushChecked.fill(-999);
   sprintT = 0; decoy.t = 0; bolt = null; novaFx = null; blinkFx = null;
-  timeLeft = 60; over = false; win = false; clearT = 0;
+  timeLeft = 30; over = false; win = false; clearT = 0;
   last = performance.now();
   $('level').textContent = 'LEVEL ' + level;
-  $('statusMsg').textContent = n + ' SEEKER-BOTS \u00b7 SURVIVE 60 SEC';
+  $('statusMsg').textContent = n + ' SEEKER-BOTS \u00b7 SURVIVE 30 SEC';
   const newAb = ABILITIES.find(a => a.unlock === level);
   if (newAb) { toastMsg = 'NEW ABILITY: ' + newAb.name + ' [' + newAb.label + ']'; toastT = 3.5; }
   renderHotbar();
