@@ -10,31 +10,45 @@
 //   POST /api/scores?action=leave&id=<uuid> -> { count: N }
 //   GET  /api/scores?action=count           -> { count: N }
 //
-// Storage: Vercel KV (Upstash Redis via the Vercel Marketplace).
-// Setup: Vercel dashboard -> Storage -> Create Database -> Upstash Redis (KV)
-// -> Connect to this project. That injects KV_REST_API_URL / KV_REST_API_TOKEN
-// and this file just works. Until then, GET returns {offline: true} and the
-// game hides the leaderboard/counter gracefully.
+// Storage: Upstash Redis via KV_REST_API_URL + KV_REST_API_TOKEN env vars.
+// Injected automatically when you connect an Upstash KV store in Vercel dashboard.
 
-import { kv } from '@vercel/kv';
+const SCORE_KEY = 'hs86:scores';
+const SESS_TTL  = 45; // seconds; client heartbeats every 20s
 
-const SCORE_KEY = 'hs86:leaderboard';
-const SESS_TTL  = 45; // seconds; client must heartbeat faster than this
+function kvUrl() { return process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL; }
+function kvTok() { return process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN; }
 
-// ── Presence helpers ─────────────────────────────────────────────────────────
+async function kv(cmd) {
+  const url = kvUrl(), tok = kvTok();
+  if (!url || !tok) throw new Error('KV not configured');
+  const r = await fetch(`${url}/${cmd.map(encodeURIComponent).join('/')}`, {
+    headers: { Authorization: `Bearer ${tok}` }
+  });
+  const d = await r.json();
+  if (d.error) throw new Error(d.error);
+  return d.result;
+}
+
+// ── Presence helpers ──────────────────────────────────────────────────────────
 
 async function sessSet(id) {
-  await kv.set(`hs86:sess:${id}`, '1', { ex: SESS_TTL });
+  await kv(['SET', `hs86:sess:${id}`, '1', 'EX', String(SESS_TTL)]);
 }
 
 async function sessDel(id) {
-  await kv.del(`hs86:sess:${id}`);
+  await kv(['DEL', `hs86:sess:${id}`]);
 }
 
 async function sessCount() {
-  // KEYS is fine here — presence keys are tiny and short-lived
-  const keys = await kv.keys('hs86:sess:*');
-  return keys.length;
+  // Use SCAN instead of KEYS (KEYS is disabled on large Upstash DBs)
+  let cursor = '0', count = 0;
+  do {
+    const res = await kv(['SCAN', cursor, 'MATCH', 'hs86:sess:*', 'COUNT', '100']);
+    cursor = String(res[0]);
+    count += Array.isArray(res[1]) ? res[1].length : 0;
+  } while (cursor !== '0');
+  return count;
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -65,11 +79,13 @@ export default async function handler(req, res) {
 
     // ── Leaderboard routes ────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const flat = await kv.zrange(SCORE_KEY, 0, 9, { rev: true, withScores: true });
+      const flat = await kv(['ZRANGE', SCORE_KEY, '0', '9', 'REV', 'WITHSCORES']);
       const rows = [];
-      for (let i = 0; i + 1 < flat.length; i += 2) {
-        const [initials, level] = String(flat[i]).split('|');
-        rows.push({ initials, level: parseInt(level, 10) || 1, score: Math.round(Number(flat[i + 1])) });
+      if (Array.isArray(flat)) {
+        for (let i = 0; i + 1 < flat.length; i += 2) {
+          const [initials, level] = String(flat[i]).split('|');
+          rows.push({ initials, level: parseInt(level, 10) || 1, score: Math.round(Number(flat[i + 1])) });
+        }
       }
       return res.status(200).json({ scores: rows });
     }
@@ -84,8 +100,8 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'invalid score payload' });
       }
       const member = `${initials}|${level}|${Date.now()}|${Math.random().toString(36).slice(2, 7)}`;
-      await kv.zadd(SCORE_KEY, { score, member });
-      await kv.zremrangebyrank(SCORE_KEY, 0, -101); // keep top 100
+      await kv(['ZADD', SCORE_KEY, String(score), member]);
+      await kv(['ZREMRANGEBYRANK', SCORE_KEY, '0', '-101']);
       return res.status(200).json({ ok: true });
     }
 
@@ -94,6 +110,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     // KV not configured or transient failure — degrade gracefully
-    return res.status(200).json({ offline: true, count: 0 });
+    return res.status(200).json({ offline: true, count: 0, err: err.message });
   }
 }
