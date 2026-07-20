@@ -107,9 +107,36 @@
   <span class="m">MINT WALLS BLOCK SIGHT</span>
 </div>
 
+<div id="goPanel" style="display:none; position:fixed; inset:0; background:rgba(12,5,23,0.88); z-index:50; align-items:center; justify-content:center;">
+  <div style="border:2px solid var(--pink); border-radius:12px; padding:28px 34px; text-align:center; background:var(--bg); box-shadow:0 0 30px rgba(255,41,117,.5); max-width:90vw;">
+    <p style="color:var(--pink); font-size:16px; text-shadow:0 0 10px var(--pink); margin-bottom:14px;">GAME OVER</p>
+    <p id="goScore" style="color:var(--cyan); font-size:12px; margin-bottom:18px;">SCORE 0</p>
+    <p style="color:#9a86c8; font-size:9px; margin-bottom:10px;">ENTER YOUR INITIALS</p>
+    <input id="goInitials" maxlength="3" autocomplete="off" spellcheck="false"
+      style="width:110px; text-align:center; font-family:inherit; font-size:22px; letter-spacing:8px;
+      background:transparent; color:var(--gold); border:2px solid var(--gold); border-radius:6px;
+      padding:8px 0 8px 8px; text-transform:uppercase; outline:none; text-shadow:0 0 8px var(--gold);">
+    <div style="display:flex; gap:12px; justify-content:center; margin-top:18px;">
+      <button id="goSubmit">SUBMIT</button>
+      <button id="goSkip" style="color:#9a86c8; border-color:#5d4a8a; box-shadow:none; text-shadow:none;">SKIP</button>
+    </div>
+  </div>
+</div>
+
+<div id="lbPanel" style="width:min(960px,100%); margin-top:22px; border:2px solid var(--grid); border-radius:12px; padding:16px 20px; box-shadow:0 0 18px rgba(140,30,255,.35);">
+  <p style="color:var(--gold); font-size:12px; letter-spacing:2px; text-shadow:0 0 10px var(--gold); margin-bottom:12px;">&#9733; HIGH SCORES &#9733;</p>
+  <ol id="lbList" style="list-style:none; color:var(--cyan); font-size:10px; line-height:2.2; white-space:pre;"></ol>
+  <p id="lbStatus" style="color:#9a86c8; font-size:9px; margin-top:6px;"></p>
+</div>
+
+<div id="onlineCount" style="font-size:7px; color:#5d4a8a; text-align:center; margin:18px 0 4px; letter-spacing:2px; font-family:'Press Start 2P',monospace;">&#9679; LOADING...</div>
 <footer>WASD / ARROWS TO MOVE &middot; SPACE / Q / E / R / F FOR ABILITIES &middot; UNLOCK A NEW MOVE EVERY 2 LEVELS<br>SURVIVE 30 SEC PER LEVEL &middot; EVERY LEVEL A SEEKER JOINS &middot; NEW ARENA EVERY 3 LEVELS &middot; GRAB THE ? CRATES</footer>
 
 <script src="faces.js"></script>
-<script src="game.js"></script>
+<script src="js/config.js"></script>
+<script src="js/map.js"></script>
+<script src="js/abilities.js"></script>
+<script src="js/render.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>

@@ -4,9 +4,15 @@ A 1980s arcade hide-and-seek game with AI seeker agents. Survive 30 seconds per 
 
 ## Files
 
-- `index.html` — page shell, styling, HUD, touch controls
-- `game.js` — all game logic (AI state machines, collision, levels, rendering)
+- `index.html` — page shell, styling, HUD, touch controls, leaderboard panel
+- `js/config.js` — every tuning constant (abilities, powerups, timers)
+- `js/map.js` — collision, pathfinding grid, A*, procedural maze generation
+- `js/abilities.js` — abilities, powerups, and the per-frame update (player + seeker AI)
+- `js/render.js` — all canvas drawing + the DOM hotbar
+- `js/main.js` — entry point: state, game loop, input, leaderboard client
 - `faces.js` — the hider and seeker face sprites as base64 constants
+- `api/scores.js` — serverless leaderboard endpoint (Vercel KV)
+- `package.json` — declares the `@vercel/kv` dependency
 
 ## Deploy to Vercel
 
@@ -67,6 +73,18 @@ Mario Kart-style item crates spawn from level 1 — glowing "?" boxes, at most 2
 | CLOAK | Invisible for 3s, even in the open, even mid-chase |
 
 Crate placement is validated against walls and reachability, and never spawns within 120px of you. Tuning constants: CRATE_LIFE, CRATE_MAX, FREEZE_TIME, CLOAK_TIME, CLOCK_CUT.
+
+
+## Leaderboard (v7)
+
+Arcade-style: get caught, enter 3 initials, score posts to a shared top-100 board (top 10 shown under the game). Score = total seconds survived across the run. No login, no personal data.
+
+**Setup (one time):**
+1. Vercel dashboard -> your project -> Storage -> Create Database -> **Upstash Redis (KV)**
+2. Connect it to this project (this injects `KV_REST_API_URL` / `KV_REST_API_TOKEN`)
+3. Redeploy
+
+Until KV is connected, the API answers `{offline: true}` and the game simply hides the leaderboard panel — everything else works. Note the honest caveat: like any client-side game, score submissions are technically spoofable; this board is for family and friends, not anti-cheat.
 
 ## Modding guide (the fun part)
 
