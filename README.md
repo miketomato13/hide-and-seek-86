@@ -1,6 +1,6 @@
 # Hide + Seek '86
 
-A 1980s arcade hide-and-seek game with AI seeker agents. Survive 60 seconds per level. Every level cleared, another seeker-bot joins the hunt.
+A 1980s arcade hide-and-seek game with AI seeker agents. Survive 30 seconds per level. Every level cleared, another seeker-bot joins the hunt.
 
 ## Files
 
@@ -25,6 +25,15 @@ vercel --prod
 **Option C — GitHub:**
 Push this folder to a repo, then import it at vercel.com/new. Framework preset: "Other". No build command, output directory: `./`.
 
+
+
+## Procedural arenas (v4)
+
+Every 3 levels (`epoch = floor((level-1)/3)`) the map regenerates: 5-7 bushes, 4-6 walls, 8 seeker spawns with random patrol routes. Generation is validated — minimum spacing, a clear zone around the player spawn, and a flood-fill connectivity check guaranteeing every bush and spawn is reachable. Invalid rolls are re-salted and retried (60 attempts, then a handcrafted fallback).
+
+Maps are **seeded and deterministic**: `MAP_SEED_BASE` (default 1986) + epoch produces the same arena for every player, so level 7 is the same level 7 worldwide — a requirement for fair leaderboards later. Change `MAP_SEED_BASE` to rotate in a whole new set of arenas.
+
+Levels are 30 seconds each (`LEVEL_TIME`).
 
 ## Abilities (v3)
 

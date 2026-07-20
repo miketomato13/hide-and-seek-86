@@ -18,41 +18,13 @@ const NOVA_RADIUS = 170, NOVA_FREEZE = 2.5;
 const BLINK_DIST = 160;
 const DECOY_LIFE = 4, SPRINT_TIME = 2, SPRINT_MULT = 1.5;
 const BOLT_SPEED = 460, BOLT_STUN = 3;
+const LEVEL_TIME = 30;
 
-// ---------- Level geometry ----------
-const bushes = [
-  {x:100,y:80, w:110,h:70},
-  {x:620,y:70, w:120,h:80},
-  {x:380,y:220,w:100,h:70},
-  {x:150,y:380,w:110,h:80},
-  {x:700,y:420,w:120,h:80},
-  {x:420,y:470,w:100,h:70},
-  {x:820,y:220,w:100,h:70},
-];
-const walls = [
-  {x:300,y:60, w:24,h:130},
-  {x:560,y:380,w:24,h:140},
-  {x:80, y:250,w:120,h:20},
-  {x:680,y:180,w:120,h:20},
-  {x:460,y:90, w:24,h:110},
-  {x:250,y:480,w:140,h:20},
-];
-const spawns = [
-  {x:910,y:550,route:[{x:910,y:550},{x:910,y:60},{x:500,y:50}]},
-  {x:480,y:570,route:[{x:480,y:570},{x:60,y:560},{x:60,y:340}]},
-  {x:910,y:60, route:[{x:910,y:60},{x:900,y:330},{x:620,y:330}]},
-  {x:60,y:50,  route:[{x:60,y:50},{x:250,y:40},{x:250,y:220}]},
-  {x:500,y:330,route:[{x:500,y:330},{x:640,y:250},{x:500,y:150}]},
-  {x:60,y:560, route:[{x:60,y:560},{x:400,y:560},{x:480,y:400}]},
-  {x:500,y:50, route:[{x:500,y:50},{x:760,y:130},{x:850,y:340}]},
-  {x:60,y:340, route:[{x:60,y:340},{x:280,y:330},{x:330,y:440}]},
-];
-const bushChecked = bushes.map(() => -999);
-
-// ---------- Face sprites ----------
-const hiderImg = new Image(), seekerImg = new Image();
-hiderImg.src = 'data:image/jpeg;base64,' + HIDER_B64;
-seekerImg.src = 'data:image/jpeg;base64,' + SEEKER_B64;
+function inRect(px, py, r, pad) {
+  pad = pad || 0;
+  return px > r.x - pad && px < r.x + r.w + pad && py > r.y - pad && py < r.y + r.h + pad;
+}
+function hitWall(x, y, r) { return walls.some(w => inRect(x, y, w, r)); }
 
 // ---------- Pathfinding grid ----------
 const CELL = 20, COLS = W / CELL, ROWS = H / CELL;
@@ -71,13 +43,153 @@ function buildGrid() {
     }
   }
 }
-buildGrid();
 
 const cellOf = (x, y) => ({
   c: Math.max(0, Math.min(COLS-1, Math.floor(x / CELL))),
   r: Math.max(0, Math.min(ROWS-1, Math.floor(y / CELL)))
 });
 const centerOf = (c, r) => ({x: c*CELL + CELL/2, y: r*CELL + CELL/2});
+
+// ---------- Level geometry (procedurally generated every 3 levels) ----------
+const PLAYER_SPAWN = {x:50, y:300};
+const MAP_SEED_BASE = 1986; // change this and everyone gets a fresh map rotation
+let bushes = [], walls = [], spawns = [], bushChecked = [];
+let currentEpoch = -1;
+
+// Deterministic PRNG: same seed -> same map for every player (leaderboard-fair)
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let x = Math.imul(a ^ a >>> 15, 1 | a);
+    x = x + Math.imul(x ^ x >>> 7, 61 | x) ^ x;
+    return ((x ^ x >>> 14) >>> 0) / 4294967296;
+  };
+}
+function rectsOverlap(a, b, pad) {
+  return a.x - pad < b.x + b.w && a.x + a.w + pad > b.x &&
+         a.y - pad < b.y + b.h && a.y + a.h + pad > b.y;
+}
+const FALLBACK_MAP = {
+  bushes: [
+    {x:100,y:80,w:110,h:70},{x:620,y:70,w:120,h:80},{x:380,y:220,w:100,h:70},
+    {x:150,y:380,w:110,h:80},{x:700,y:420,w:120,h:80},{x:420,y:470,w:100,h:70},
+    {x:820,y:220,w:100,h:70}
+  ],
+  walls: [
+    {x:300,y:60,w:24,h:130},{x:560,y:380,w:24,h:140},{x:80,y:250,w:120,h:20},
+    {x:680,y:180,w:120,h:20},{x:460,y:90,w:24,h:110},{x:250,y:480,w:140,h:20}
+  ]
+};
+
+// Flood fill over the wall grid from the player spawn; returns reachability set
+function reachableFrom(x, y) {
+  const seen = new Uint8Array(COLS * ROWS);
+  const start = cellOf(x, y);
+  const q = [start.r * COLS + start.c];
+  if (grid[q[0]]) return seen;
+  seen[q[0]] = 1;
+  while (q.length) {
+    const i = q.pop(), c = i % COLS, r = (i - c) / COLS;
+    const nbrs = [i-1, i+1, i-COLS, i+COLS];
+    if (c === 0) nbrs[0] = -1;
+    if (c === COLS-1) nbrs[1] = -1;
+    for (const n of nbrs) {
+      if (n >= 0 && n < seen.length && !seen[n] && !grid[n]) { seen[n] = 1; q.push(n); }
+    }
+  }
+  return seen;
+}
+const cellReachable = (seen, x, y) => { const c = cellOf(x, y); return !!seen[c.r*COLS + c.c]; };
+
+function generateMap(epoch) {
+  for (let salt = 0; salt < 60; salt++) {
+    const rnd = mulberry32(MAP_SEED_BASE + epoch * 1009 + salt * 7919);
+    const newWalls = [], newBushes = [];
+
+    // Walls: 4-6 bars, vertical or horizontal
+    const nW = 4 + Math.floor(rnd() * 3);
+    for (let tries = 0; newWalls.length < nW && tries < 200; tries++) {
+      const vert = rnd() < 0.5;
+      const w = vert ? {w: 22 + Math.floor(rnd()*5), h: 100 + Math.floor(rnd()*55)}
+                     : {w: 100 + Math.floor(rnd()*65), h: 18 + Math.floor(rnd()*5)};
+      w.x = 45 + Math.floor(rnd() * (W - 90 - w.w));
+      w.y = 45 + Math.floor(rnd() * (H - 90 - w.h));
+      const nearSpawn = rectsOverlap(w, {x:PLAYER_SPAWN.x-90, y:PLAYER_SPAWN.y-90, w:180, h:180}, 0);
+      if (nearSpawn) continue;
+      if (newWalls.some(o => rectsOverlap(w, o, 34))) continue;
+      newWalls.push(w);
+    }
+    if (newWalls.length < 4) continue;
+
+    // Bushes: 5-7 hedges
+    const nB = 5 + Math.floor(rnd() * 3);
+    for (let tries = 0; newBushes.length < nB && tries < 300; tries++) {
+      const b = {
+        w: 90 + Math.floor(rnd()*45), h: 60 + Math.floor(rnd()*30)
+      };
+      b.x = 45 + Math.floor(rnd() * (W - 90 - b.w));
+      b.y = 45 + Math.floor(rnd() * (H - 90 - b.h));
+      const nearSpawn = rectsOverlap(b, {x:PLAYER_SPAWN.x-100, y:PLAYER_SPAWN.y-100, w:200, h:200}, 0);
+      if (nearSpawn) continue;
+      if (newWalls.some(o => rectsOverlap(b, o, 26))) continue;
+      if (newBushes.some(o => rectsOverlap(b, o, 36))) continue;
+      newBushes.push(b);
+    }
+    if (newBushes.length < 5) continue;
+
+    // Commit tentatively and validate connectivity
+    walls = newWalls; bushes = newBushes;
+    buildGrid();
+    const seen = reachableFrom(PLAYER_SPAWN.x, PLAYER_SPAWN.y);
+    if (!bushes.every(b => cellReachable(seen, b.x + b.w/2, b.y + b.h/2))) continue;
+
+    // Seeker spawns: 8 open, reachable points far from the player
+    const newSpawns = [];
+    for (let tries = 0; newSpawns.length < 8 && tries < 500; tries++) {
+      const p = {x: 40 + rnd() * (W - 80), y: 40 + rnd() * (H - 80)};
+      if (hitWall(p.x, p.y, 20)) continue;
+      if (!cellReachable(seen, p.x, p.y)) continue;
+      if (Math.hypot(p.x - PLAYER_SPAWN.x, p.y - PLAYER_SPAWN.y) < 280) continue;
+      if (newSpawns.some(o => Math.hypot(p.x - o.x, p.y - o.y) < 110)) continue;
+      // Patrol route: 3 reachable open waypoints spread around
+      const route = [{x:p.x, y:p.y}];
+      for (let wpt = 0; wpt < 2 && route.length < 3; ) {
+        const q = {x: 40 + rnd() * (W - 80), y: 40 + rnd() * (H - 80)};
+        wpt++;
+        if (hitWall(q.x, q.y, 20) || !cellReachable(seen, q.x, q.y)) continue;
+        if (Math.hypot(q.x - route[route.length-1].x, q.y - route[route.length-1].y) < 160) continue;
+        route.push(q);
+      }
+      while (route.length < 3) route.push({x: W/2 + (rnd()-0.5)*200, y: H/2 + (rnd()-0.5)*160});
+      newSpawns.push({x:p.x, y:p.y, route});
+    }
+    if (newSpawns.length < 8) continue;
+
+    spawns = newSpawns;
+    bushChecked = bushes.map(() => -999);
+    return true;
+  }
+  // All attempts failed (shouldn't happen): fall back to the handcrafted map
+  walls = FALLBACK_MAP.walls.map(w => ({...w}));
+  bushes = FALLBACK_MAP.bushes.map(b => ({...b}));
+  buildGrid();
+  const seen = reachableFrom(PLAYER_SPAWN.x, PLAYER_SPAWN.y);
+  spawns = [];
+  const rnd = mulberry32(1);
+  while (spawns.length < 8) {
+    const p = {x: 40 + rnd() * (W - 80), y: 40 + rnd() * (H - 80)};
+    if (hitWall(p.x, p.y, 20) || !cellReachable(seen, p.x, p.y)) continue;
+    if (Math.hypot(p.x - PLAYER_SPAWN.x, p.y - PLAYER_SPAWN.y) < 280) continue;
+    spawns.push({x:p.x, y:p.y, route:[{x:p.x,y:p.y},{x:W/2,y:60},{x:W/2,y:H-60}]});
+  }
+  bushChecked = bushes.map(() => -999);
+  return false;
+}
+
+// ---------- Face sprites ----------
+const hiderImg = new Image(), seekerImg = new Image();
+hiderImg.src = 'data:image/jpeg;base64,' + HIDER_B64;
+seekerImg.src = 'data:image/jpeg;base64,' + SEEKER_B64;
 
 function astar(sx, sy, tx, ty) {
   const s = cellOf(sx, sy), t = cellOf(tx, ty);
@@ -173,7 +285,10 @@ const $ = id => document.getElementById(id);
 function unlocked(a) { return level >= a.unlock; }
 
 function startLevel() {
-  player = {x:50, y:300, r:15, speed:180, fx:1, fy:0};
+  const epoch = Math.floor((level - 1) / 3);
+  const newArena = epoch !== currentEpoch;
+  if (newArena) { currentEpoch = epoch; generateMap(epoch); }
+  player = {x:PLAYER_SPAWN.x, y:PLAYER_SPAWN.y, r:15, speed:180, fx:1, fy:0};
   seekers = [];
   const n = Math.min(1 + level, spawns.length);
   for (let i = 0; i < n; i++) {
@@ -189,28 +304,26 @@ function startLevel() {
       px: sp.x, py: sp.y, stuck: 0
     });
   }
-  bushChecked.fill(-999);
+  bushChecked = bushes.map(() => -999);
   sprintT = 0; decoy.t = 0; bolt = null; novaFx = null; blinkFx = null;
-  timeLeft = 30; over = false; win = false; clearT = 0;
+  timeLeft = LEVEL_TIME; over = false; win = false; clearT = 0;
   last = performance.now();
   $('level').textContent = 'LEVEL ' + level;
   $('statusMsg').textContent = n + ' SEEKER-BOTS \u00b7 SURVIVE 30 SEC';
   const newAb = ABILITIES.find(a => a.unlock === level);
-  if (newAb) { toastMsg = 'NEW ABILITY: ' + newAb.name + ' [' + newAb.label + ']'; toastT = 3.5; }
+  const parts = [];
+  if (newArena && level > 1) parts.push('NEW ARENA');
+  if (newAb) parts.push('NEW ABILITY: ' + newAb.name + ' [' + newAb.label + ']');
+  if (parts.length) { toastMsg = parts.join(' \u00b7 '); toastT = 3.5; }
   renderHotbar();
 }
 function fullReset() {
-  level = 1; started = true;
+  level = 1; started = true; currentEpoch = -1;
   for (const a of ABILITIES) cds[a.id] = 0;
   startLevel();
 }
 
 // ---------- Helpers ----------
-function inRect(px, py, r, pad) {
-  pad = pad || 0;
-  return px > r.x - pad && px < r.x + r.w + pad && py > r.y - pad && py < r.y + r.h + pad;
-}
-function hitWall(x, y, r) { return walls.some(w => inRect(x, y, w, r)); }
 function whichBush(px, py) {
   for (let i = 0; i < bushes.length; i++) if (inRect(px, py, bushes[i])) return i;
   return -1;
