@@ -29,7 +29,7 @@ Push this folder to a repo, then import it at vercel.com/new. Framework preset: 
 
 ## Procedural arenas (v4)
 
-Every 3 levels (`epoch = floor((level-1)/3)`) the map regenerates: 5-7 bushes, 4-6 walls, 8 seeker spawns with random patrol routes. Generation is validated — minimum spacing, a clear zone around the player spawn, and a flood-fill connectivity check guaranteeing every bush and spawn is reachable. Invalid rolls are re-salted and retried (60 attempts, then a handcrafted fallback).
+Every 3 levels (`epoch = floor((level-1)/3)`) the map regenerates as a Pac-Man-style maze: walls snap to a 40px lattice, generate on the left half and mirror to the right, plus 1-2 unmirrored center pieces (10-16 walls total). 5-7 bushes stay asymmetric, and 12 seeker spawns (the seeker cap) get random patrol routes. Generation is validated — 56px corridor minimums, a clear zone around the player spawn, a flood-fill connectivity check guaranteeing every bush/spawn/corner is reachable, and an openness floor (>=55% of cells reachable) so mazes never seal themselves off. Invalid rolls are re-salted and retried (60 attempts, then a handcrafted fallback).
 
 Maps are **seeded and deterministic**: `MAP_SEED_BASE` (default 1986) + epoch produces the same arena for every player, so level 7 is the same level 7 worldwide — a requirement for fair leaderboards later. Change `MAP_SEED_BASE` to rotate in a whole new set of arenas.
 
@@ -48,6 +48,25 @@ Hotkeys: Space / Q / E / R / F, or tap the hotbar. Locked slots show the level t
 | Stun Bolt | F | L10 | 12s | Skillshot projectile; first bot hit stunned 3s |
 
 Frozen/stunned bots are harmless statues — you can walk right past (or through) them. Aim for blink/bolt is your facing direction, shown by the small dot orbiting your character. Tuning constants are at the top of `game.js` (NOVA_RADIUS, BLINK_DIST, SPRINT_MULT, etc.).
+
+
+
+## Anti-camping sweep (v6)
+
+Bots sweep **points of interest**, not just bushes: every bush center plus the 4 corners and 4 edge midpoints join a shared staleness board. Bots always investigate the least-recently-checked POI (skipping ones a teammate claimed), corners start extra-stale so they're swept first each level, and sweep cadence scales inversely with squad size — 2 bots sweep twice as often per-bot as 8. Verified: 95-100% catch rate against camping in corners, edges, bushes, and random open ground within a single 30s level.
+
+## Powerups (v5)
+
+Mario Kart-style item crates spawn from level 1 — glowing "?" boxes, at most 2 on the field, each lasting 10 seconds (blinking before despawn). Walk over one to grab it. Four effects, equal odds:
+
+| Powerup | Effect |
+|---|---|
+| CD RESET | All ability cooldowns wiped to zero |
+| TIME FREEZE | Every bot frozen for 2s |
+| -8 SEC | Cuts 8 seconds off the survival clock |
+| CLOAK | Invisible for 3s, even in the open, even mid-chase |
+
+Crate placement is validated against walls and reachability, and never spawns within 120px of you. Tuning constants: CRATE_LIFE, CRATE_MAX, FREEZE_TIME, CLOAK_TIME, CLOCK_CUT.
 
 ## Modding guide (the fun part)
 

@@ -19,6 +19,14 @@ const BLINK_DIST = 160;
 const DECOY_LIFE = 4, SPRINT_TIME = 2, SPRINT_MULT = 1.5;
 const BOLT_SPEED = 460, BOLT_STUN = 3;
 const LEVEL_TIME = 30;
+const POWERUPS = [
+  {id:'reset',  name:'CD RESET',   color:'#8c1eff'},
+  {id:'freeze', name:'TIME FREEZE',color:'#7fd4ff'},
+  {id:'clock',  name:'-8 SEC',     color:'#ff2975'},
+  {id:'cloak',  name:'CLOAK',      color:'#00ffa3'},
+];
+const CRATE_LIFE = 10, CRATE_MAX = 2, CRATE_PICKUP_R = 22;
+const FREEZE_TIME = 2, CLOAK_TIME = 3, CLOCK_CUT = 8;
 
 function inRect(px, py, r, pad) {
   pad = pad || 0;
@@ -53,7 +61,7 @@ const centerOf = (c, r) => ({x: c*CELL + CELL/2, y: r*CELL + CELL/2});
 // ---------- Level geometry (procedurally generated every 3 levels) ----------
 const PLAYER_SPAWN = {x:50, y:300};
 const MAP_SEED_BASE = 1986; // change this and everyone gets a fresh map rotation
-let bushes = [], walls = [], spawns = [], bushChecked = [];
+let bushes = [], walls = [], spawns = [], pois = [], poiChecked = [];
 let currentEpoch = -1;
 
 // Deterministic PRNG: same seed -> same map for every player (leaderboard-fair)
@@ -106,20 +114,38 @@ function generateMap(epoch) {
     const rnd = mulberry32(MAP_SEED_BASE + epoch * 1009 + salt * 7919);
     const newWalls = [], newBushes = [];
 
-    // Walls: 4-6 bars, vertical or horizontal
-    const nW = 4 + Math.floor(rnd() * 3);
-    for (let tries = 0; newWalls.length < nW && tries < 200; tries++) {
+    // Maze walls: lattice-snapped bars generated on the LEFT half and mirrored
+    // to the right (Pac-Man symmetry), plus 1-2 unmirrored center pieces.
+    const snap = v => Math.round(v / 40) * 40;
+    const spawnZone = {x:PLAYER_SPAWN.x-90, y:PLAYER_SPAWN.y-90, w:180, h:180};
+    const mirrorZone = {x:W-PLAYER_SPAWN.x-90, y:PLAYER_SPAWN.y-90, w:180, h:180};
+    const nSide = 5 + Math.floor(rnd() * 3); // 5-7 per side -> 10-14 mirrored
+    for (let tries = 0; newWalls.length < nSide * 2 && tries < 400; tries++) {
       const vert = rnd() < 0.5;
-      const w = vert ? {w: 22 + Math.floor(rnd()*5), h: 100 + Math.floor(rnd()*55)}
-                     : {w: 100 + Math.floor(rnd()*65), h: 18 + Math.floor(rnd()*5)};
-      w.x = 45 + Math.floor(rnd() * (W - 90 - w.w));
-      w.y = 45 + Math.floor(rnd() * (H - 90 - w.h));
-      const nearSpawn = rectsOverlap(w, {x:PLAYER_SPAWN.x-90, y:PLAYER_SPAWN.y-90, w:180, h:180}, 0);
-      if (nearSpawn) continue;
-      if (newWalls.some(o => rectsOverlap(w, o, 34))) continue;
-      newWalls.push(w);
+      const len = [120, 160, 200][Math.floor(rnd() * 3)];
+      const wall = vert ? {w: 22, h: len} : {w: len, h: 22};
+      wall.x = snap(50 + rnd() * (W/2 - 110 - wall.w));
+      wall.y = snap(50 + rnd() * (H - 100 - wall.h));
+      const mir = {x: W - wall.x - wall.w, y: wall.y, w: wall.w, h: wall.h};
+      if (rectsOverlap(wall, spawnZone, 0) || rectsOverlap(mir, mirrorZone, 0)) continue;
+      // Corridor guarantee: min 56px between wall pairs (grid pad 12 + bot fits)
+      if (newWalls.some(o => rectsOverlap(wall, o, 56) || rectsOverlap(mir, o, 56))) continue;
+      if (rectsOverlap(wall, mir, 56)) continue; // near-center walls colliding with own mirror
+      newWalls.push(wall, mir);
     }
-    if (newWalls.length < 4) continue;
+    // Center pieces: 1-2 unmirrored, straddling the middle (freestyle touch)
+    const nCenter = 1 + Math.floor(rnd() * 2);
+    for (let tries = 0, placed = 0; placed < nCenter && tries < 100; tries++) {
+      const vert = rnd() < 0.6;
+      const len = [120, 160][Math.floor(rnd() * 2)];
+      const wall = vert ? {w: 22, h: len} : {w: len, h: 22};
+      wall.x = snap(W/2 - wall.w/2 + (rnd() - 0.5) * 120);
+      wall.y = snap(60 + rnd() * (H - 120 - wall.h));
+      if (rectsOverlap(wall, spawnZone, 0)) continue;
+      if (newWalls.some(o => rectsOverlap(wall, o, 56))) continue;
+      newWalls.push(wall); placed++;
+    }
+    if (newWalls.length < 10) continue;
 
     // Bushes: 5-7 hedges
     const nB = 5 + Math.floor(rnd() * 3);
@@ -131,21 +157,31 @@ function generateMap(epoch) {
       b.y = 45 + Math.floor(rnd() * (H - 90 - b.h));
       const nearSpawn = rectsOverlap(b, {x:PLAYER_SPAWN.x-100, y:PLAYER_SPAWN.y-100, w:200, h:200}, 0);
       if (nearSpawn) continue;
-      if (newWalls.some(o => rectsOverlap(b, o, 26))) continue;
+      if (newWalls.some(o => rectsOverlap(b, o, 24))) continue;
       if (newBushes.some(o => rectsOverlap(b, o, 36))) continue;
       newBushes.push(b);
     }
     if (newBushes.length < 5) continue;
 
-    // Commit tentatively and validate connectivity
+    // Commit tentatively and validate connectivity + openness
     walls = newWalls; bushes = newBushes;
     buildGrid();
     const seen = reachableFrom(PLAYER_SPAWN.x, PLAYER_SPAWN.y);
     if (!bushes.every(b => cellReachable(seen, b.x + b.w/2, b.y + b.h/2))) continue;
+    // Maze must stay navigable: >=55% of all cells reachable from spawn
+    let reach = 0;
+    for (let i = 0; i < seen.length; i++) reach += seen[i];
+    if (reach / seen.length < 0.55) continue;
+    // Corners must be reachable (they join the sweep rotation)
+    const corners = [
+      {x:55,y:55},{x:W-55,y:55},{x:55,y:H-55},{x:W-55,y:H-55},
+      {x:W/2,y:55},{x:W/2,y:H-55},{x:55,y:H/2},{x:W-55,y:H/2}
+    ];
+    if (!corners.every(c => cellReachable(seen, c.x, c.y))) continue;
 
-    // Seeker spawns: 8 open, reachable points far from the player
+    // Seeker spawns: 12 open, reachable points far from the player
     const newSpawns = [];
-    for (let tries = 0; newSpawns.length < 8 && tries < 500; tries++) {
+    for (let tries = 0; newSpawns.length < 12 && tries < 700; tries++) {
       const p = {x: 40 + rnd() * (W - 80), y: 40 + rnd() * (H - 80)};
       if (hitWall(p.x, p.y, 20)) continue;
       if (!cellReachable(seen, p.x, p.y)) continue;
@@ -163,10 +199,12 @@ function generateMap(epoch) {
       while (route.length < 3) route.push({x: W/2 + (rnd()-0.5)*200, y: H/2 + (rnd()-0.5)*160});
       newSpawns.push({x:p.x, y:p.y, route});
     }
-    if (newSpawns.length < 8) continue;
+    if (newSpawns.length < 12) continue;
 
     spawns = newSpawns;
-    bushChecked = bushes.map(() => -999);
+    pois = bushes.map(b => ({x: b.x + b.w/2, y: b.y + b.h/2, bush: true}))
+                 .concat(corners.map(c => ({x: c.x, y: c.y, bush: false})));
+    poiChecked = pois.map(p => p.bush ? -999 : -1400);
     return true;
   }
   // All attempts failed (shouldn't happen): fall back to the handcrafted map
@@ -176,13 +214,18 @@ function generateMap(epoch) {
   const seen = reachableFrom(PLAYER_SPAWN.x, PLAYER_SPAWN.y);
   spawns = [];
   const rnd = mulberry32(1);
-  while (spawns.length < 8) {
+  while (spawns.length < 12) {
     const p = {x: 40 + rnd() * (W - 80), y: 40 + rnd() * (H - 80)};
     if (hitWall(p.x, p.y, 20) || !cellReachable(seen, p.x, p.y)) continue;
     if (Math.hypot(p.x - PLAYER_SPAWN.x, p.y - PLAYER_SPAWN.y) < 280) continue;
     spawns.push({x:p.x, y:p.y, route:[{x:p.x,y:p.y},{x:W/2,y:60},{x:W/2,y:H-60}]});
   }
-  bushChecked = bushes.map(() => -999);
+  pois = bushes.map(b => ({x: b.x + b.w/2, y: b.y + b.h/2, bush: true}))
+               .concat([
+                 {x:55,y:55},{x:W-55,y:55},{x:55,y:H-55},{x:W-55,y:H-55},
+                 {x:W/2,y:55},{x:W/2,y:H-55},{x:55,y:H/2},{x:W-55,y:H/2}
+               ].map(c => ({x:c.x, y:c.y, bush:false})));
+  poiChecked = pois.map(p => p.bush ? -999 : -1400);
   return false;
 }
 
@@ -279,6 +322,7 @@ function wallBlocked(x1, y1, x2, y2) {
 let player, seekers, keys = {}, timeLeft, over, win, last, t = 0;
 let level = 1, clearT = 0, started = false;
 let cds = {}, sprintT = 0, decoy = {x:0, y:0, t:0}, bolt = null;
+let crates = [], crateTimer = 5, cloakT = 0, floats = [], reachMask = null;
 let novaFx = null, blinkFx = null, toastMsg = '', toastT = 0;
 const $ = id => document.getElementById(id);
 
@@ -299,13 +343,15 @@ function startLevel() {
       route: sp.route, wp: 0, state: 'patrol',
       lastSeen: null, searchT: 0, dir: 0,
       path: null, pathGoal: null, repathT: 0,
-      investT: 3 + Math.random()*4, targetBush: -1, lingerT: 0,
+      investT: (2 + Math.random()*3) * Math.min(1, (1+level)/4), targetPoi: -1, lingerT: 0,
       frozenT: 0, stunT: 0, quarry: 'player',
       px: sp.x, py: sp.y, stuck: 0
     });
   }
-  bushChecked = bushes.map(() => -999);
+  poiChecked = pois.map(p => p.bush ? -999 : -1400);
   sprintT = 0; decoy.t = 0; bolt = null; novaFx = null; blinkFx = null;
+  crates = []; crateTimer = 4 + Math.random() * 4; cloakT = 0; floats = [];
+  reachMask = reachableFrom(PLAYER_SPAWN.x, PLAYER_SPAWN.y);
   timeLeft = LEVEL_TIME; over = false; win = false; clearT = 0;
   last = performance.now();
   $('level').textContent = 'LEVEL ' + level;
@@ -388,16 +434,18 @@ function navigate(s, tx, ty, sp, dt) {
   }
   return Math.hypot(s.x - tx, s.y - ty) < 12;
 }
-function pickStaleBush(self) {
+// Stalest point-of-interest: bushes AND map corners join the sweep rotation,
+// so open-ground corner camping gets checked as systematically as hedges.
+function pickStalePoi(self) {
   const claimed = new Set();
-  for (const o of seekers) if (o !== self && o.state === 'investigate') claimed.add(o.targetBush);
+  for (const o of seekers) if (o !== self && o.state === 'investigate') claimed.add(o.targetPoi);
   let best = -1, bestAge = -1;
-  for (let i = 0; i < bushes.length; i++) {
+  for (let i = 0; i < pois.length; i++) {
     if (claimed.has(i)) continue;
-    const age = (t - bushChecked[i]) + Math.random() * 0.5;
+    const age = (t - poiChecked[i]) + Math.random() * 0.5;
     if (age > bestAge) { bestAge = age; best = i; }
   }
-  return best >= 0 ? best : Math.floor(Math.random() * bushes.length);
+  return best >= 0 ? best : Math.floor(Math.random() * pois.length);
 }
 const bushCenter = i => ({x: bushes[i].x + bushes[i].w/2, y: bushes[i].y + bushes[i].h/2});
 function sp0(s) { return s.state === 'chase' ? s.chaseSpeed : s.speed; }
@@ -438,6 +486,19 @@ function useAbility(id) {
   cds[id] = a.cd;
 }
 
+function applyPowerup(kind, x, y) {
+  if (kind.id === 'reset') {
+    for (const a of ABILITIES) cds[a.id] = 0;
+  } else if (kind.id === 'freeze') {
+    for (const s of seekers) { s.frozenT = Math.max(s.frozenT, FREEZE_TIME); s.path = null; }
+  } else if (kind.id === 'clock') {
+    timeLeft = Math.max(0.05, timeLeft - CLOCK_CUT);
+  } else if (kind.id === 'cloak') {
+    cloakT = CLOAK_TIME;
+  }
+  floats.push({x, y, msg: kind.name + '!', t: 1.3, color: kind.color});
+}
+
 // ---------- Update ----------
 function update(dt) {
   if (!started) return;
@@ -476,6 +537,34 @@ function update(dt) {
     }
   }
 
+  // Powerup crates
+  if (cloakT > 0) cloakT -= dt;
+  for (const fl of floats) fl.t -= dt;
+  floats = floats.filter(fl => fl.t > 0);
+  crateTimer -= dt;
+  if (crateTimer <= 0 && crates.length < CRATE_MAX) {
+    crateTimer = 8 + Math.random() * 6;
+    for (let tries = 0; tries < 40; tries++) {
+      const x = 45 + Math.random() * (W - 90), y = 45 + Math.random() * (H - 90);
+      if (hitWall(x, y, 18)) continue;
+      if (reachMask && !cellReachable(reachMask, x, y)) continue;
+      if (Math.hypot(x - player.x, y - player.y) < 120) continue;
+      if (crates.some(c => Math.hypot(x - c.x, y - c.y) < 100)) continue;
+      const kind = POWERUPS[Math.floor(Math.random() * POWERUPS.length)];
+      crates.push({x, y, t: CRATE_LIFE, kind});
+      break;
+    }
+  }
+  for (const c of crates) c.t -= dt;
+  crates = crates.filter(c => c.t > 0);
+  for (let i = crates.length - 1; i >= 0; i--) {
+    const c = crates[i];
+    if (Math.hypot(c.x - player.x, c.y - player.y) < player.r + CRATE_PICKUP_R) {
+      applyPowerup(c.kind, c.x, c.y);
+      crates.splice(i, 1);
+    }
+  }
+
   // Player input
   let vx = 0, vy = 0;
   if (keys.ArrowLeft || keys.a || keys.left) vx -= 1;
@@ -499,8 +588,10 @@ function update(dt) {
     if (s.frozenT > 0) { s.frozenT -= dt; continue; }
     if (s.stunT > 0) { s.stunT -= dt; continue; }
 
-    const sB = whichBush(s.x, s.y);
-    if (sB >= 0) bushChecked[sB] = t;
+    for (let pi = 0; pi < pois.length; pi++) {
+      const p = pois[pi];
+      if (p.bush ? whichBush(s.x, s.y) === pi : Math.hypot(s.x - p.x, s.y - p.y) < 90) poiChecked[pi] = t;
+    }
 
     const moved = Math.hypot(s.x - s.px, s.y - s.py);
     s.stuck = moved < sp0(s)*dt*0.15 ? s.stuck + dt : 0;
@@ -516,7 +607,7 @@ function update(dt) {
 
     // Perception: decoy takes priority — that's the whole point of a decoy
     const seesDecoy = decoy.t > 0 && canSeePoint(s, decoy.x, decoy.y);
-    const seesPlayer = canSeePoint(s, player.x, player.y);
+    const seesPlayer = cloakT <= 0 && canSeePoint(s, player.x, player.y);
     if (seesDecoy) { s.state = 'chase'; s.quarry = 'decoy'; s.lastSeen = {x:decoy.x, y:decoy.y}; }
     else if (seesPlayer) { s.state = 'chase'; s.quarry = 'player'; s.lastSeen = {x:player.x, y:player.y}; }
 
@@ -547,18 +638,18 @@ function update(dt) {
       const arrived = navigate(s, s.target.x, s.target.y, s.speed, dt);
       if (arrived) { s.searchT -= dt; s.dir += dt*2.5; if (s.searchT <= 0) { s.state = 'patrol'; s.path = null; } }
     } else if (s.state === 'investigate') {
-      const c = bushCenter(s.targetBush);
+      const c = pois[s.targetPoi];
       const arrived = navigate(s, c.x, c.y, s.speed, dt);
       if (arrived) {
         s.lingerT -= dt; s.dir += dt*2.5;
-        bushChecked[s.targetBush] = t;
-        if (s.lingerT <= 0) { s.state = 'patrol'; s.path = null; s.investT = 5 + Math.random()*5; }
+        poiChecked[s.targetPoi] = t;
+        if (s.lingerT <= 0) { s.state = 'patrol'; s.path = null; s.investT = (4 + Math.random()*4) * Math.min(1, seekers.length/4); }
       }
     } else {
       s.investT -= dt;
       if (s.investT <= 0) {
         s.state = 'investigate';
-        s.targetBush = pickStaleBush(s);
+        s.targetPoi = pickStalePoi(s);
         s.lingerT = 1.3; s.path = null;
       } else {
         const tp = s.route[s.wp];
@@ -718,14 +809,39 @@ function draw() {
   }
 
   // Player (with sprint trail + facing tick)
+  // Powerup crates: rotating '?' item boxes
+  for (const c of crates) {
+    const wob = Math.sin(t * 3 + c.x) * 3;
+    const blinkOut = c.t < 2.5 && Math.floor(t * 6) % 2 === 0;
+    if (blinkOut) continue;
+    cx.save();
+    cx.translate(c.x, c.y + wob);
+    cx.rotate(Math.sin(t * 2 + c.y) * 0.25);
+    cx.shadowColor = c.kind.color; cx.shadowBlur = 16;
+    cx.strokeStyle = c.kind.color; cx.lineWidth = 3;
+    cx.fillStyle = 'rgba(18,8,31,0.85)';
+    cx.beginPath(); cx.roundRect(-14, -14, 28, 28, 6); cx.fill(); cx.stroke();
+    cx.rotate(-Math.sin(t * 2 + c.y) * 0.25);
+    cx.font = 'bold 18px monospace'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    cx.fillStyle = c.kind.color;
+    cx.fillText('?', 0, 1);
+    cx.restore();
+  }
+
   const hidden = whichBush(player.x, player.y) >= 0;
+  if (cloakT > 0) {
+    cx.save(); cx.globalAlpha = 0.6; cx.strokeStyle = '#00ffa3'; cx.setLineDash([3, 5]);
+    cx.lineWidth = 2; cx.shadowColor = '#00ffa3'; cx.shadowBlur = 12;
+    cx.beginPath(); cx.arc(player.x, player.y, player.r + 8, 0, 7); cx.stroke();
+    cx.restore();
+  }
   if (sprintT > 0) {
     cx.save(); cx.globalAlpha = 0.35; cx.shadowColor = '#00e5ff'; cx.shadowBlur = 20;
     cx.strokeStyle = '#00e5ff'; cx.lineWidth = 2;
     cx.beginPath(); cx.arc(player.x, player.y, player.r + 7, 0, 7); cx.stroke();
     cx.restore();
   }
-  drawFace(hiderImg, player.x, player.y, player.r, '#00e5ff', hidden ? 0.5 : 1);
+  drawFace(hiderImg, player.x, player.y, player.r, '#00e5ff', cloakT > 0 ? 0.28 : (hidden ? 0.5 : 1));
   // Facing indicator (aim for blink/bolt)
   cx.save(); cx.fillStyle = '#00e5ff'; cx.globalAlpha = hidden ? 0.5 : 0.9;
   cx.beginPath();
@@ -755,6 +871,15 @@ function draw() {
       }
       cx.restore();
     }
+  }
+
+  // Floating pickup texts
+  for (const fl of floats) {
+    cx.save(); cx.globalAlpha = Math.min(1, fl.t);
+    cx.font = 'bold 16px monospace'; cx.textAlign = 'center';
+    cx.shadowColor = fl.color; cx.shadowBlur = 12; cx.fillStyle = fl.color;
+    cx.fillText(fl.msg, fl.x, fl.y - (1.3 - fl.t) * 40 - 24);
+    cx.restore();
   }
 
   // Scanlines
